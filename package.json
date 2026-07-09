@@ -1,0 +1,22 @@
+{
+  "name": "ai_test_playwright_autoomation_claude_code",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KsiazekPatryk/AI_TEST_Playwright_Autoomation_Claude_Code.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/KsiazekPatryk/AI_TEST_Playwright_Autoomation_Claude_Code/issues"
+  },
+  "homepage": "https://github.com/KsiazekPatryk/AI_TEST_Playwright_Autoomation_Claude_Code#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.1"
+  }
+}
