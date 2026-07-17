@@ -18,7 +18,7 @@ export class BookGridComponent {
     return new BookCardComponent(this.cards.filter({ hasText: title }));
   }
 
-  headingByTitle(title: string): Locator {
-    return this.page.getByRole('heading', { name: title, exact: true });
+  cardsMatching(titles: readonly string[]): Locator {
+    return this.cards.filter({ hasText: new RegExp(titles.join('|')) });
   }
 }
