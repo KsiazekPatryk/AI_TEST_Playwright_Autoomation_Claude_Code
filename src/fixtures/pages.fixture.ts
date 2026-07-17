@@ -1,19 +1,14 @@
 import { test as base } from '@playwright/test';
-// import { ExamplePage } from '@ui/pages/example.page';
-// import { ExampleModalComponent } from '@ui/components/example-modal.component';
+import { HomePage } from '@ui/pages/home.page';
 
 type Pages = {
-  // examplePage: ExamplePage;
-  // exampleModal: ExampleModalComponent;
+  homePage: HomePage;
 };
 
 export const test = base.extend<Pages>({
-  // examplePage: async ({ page }, use) => {
-  //   await use(new ExamplePage(page));
-  // },
-  // exampleModal: async ({ page }, use) => {
-  //   await use(new ExampleModalComponent(page));
-  // },
+  homePage: async ({ page }, use) => {
+    await use(new HomePage(page));
+  },
 });
 
 export { expect } from '@playwright/test';

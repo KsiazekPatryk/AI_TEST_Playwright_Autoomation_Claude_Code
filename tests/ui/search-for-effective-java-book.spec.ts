@@ -1,36 +1,42 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '@fixtures/test.fixture';
 
-test('searching for "Effective Java" filters the catalog to the exact matching book', async ({ page }) => {
-  await page.goto('https://ksiegarnia.up.railway.app/');
+const TOTAL_BOOKS_COUNT = 29;
+const UNRELATED_TITLES = [
+  'Java Puzzlers',
+  'Java Concurrency in Practice',
+  'Thinking in Java',
+  'Functional Programming in Java',
+];
 
-  await expect(page.getByRole('heading', { name: 'Available Books' })).toBeVisible();
+test.describe('Home page — book search', { tag: ['@ui', '@search'] }, () => {
+  test('searching for "Effective Java" filters the catalog to the exact matching book', async ({ homePage }) => {
+    // Arrange
+    await homePage.goto();
+    await expect(homePage.heading).toBeVisible();
+    await expect(homePage.searchInput).toBeVisible();
+    await expect(homePage.bookGrid.cards).toHaveCount(TOTAL_BOOKS_COUNT);
 
-  const searchInput = page.getByPlaceholder('Search books by title or author...');
-  await expect(searchInput).toBeVisible();
+    // Act
+    await homePage.searchFor('Effective Java');
 
-  const bookCards = page.locator('app-book-card');
-  await expect(bookCards).toHaveCount(29);
+    // Assert — exactly one matching book remains
+    await expect(homePage.bookGrid.cards).toHaveCount(1);
 
-  await searchInput.fill('Effective Java');
+    const effectiveJavaCard = homePage.bookGrid.cardByTitle('Effective Java');
+    await expect(effectiveJavaCard.title('Effective Java')).toBeVisible();
+    await expect(effectiveJavaCard.author('Joshua Bloch')).toBeVisible();
+    await expect(effectiveJavaCard.year('2008')).toBeVisible();
+    await expect(effectiveJavaCard.price('$107.28')).toBeVisible();
+    await expect(effectiveJavaCard.stock('100')).toBeVisible();
 
-  await expect(bookCards).toHaveCount(1);
+    for (const unrelatedTitle of UNRELATED_TITLES) {
+      await expect(homePage.bookGrid.headingByTitle(unrelatedTitle)).not.toBeVisible();
+    }
 
-  const effectiveJavaCard = bookCards.filter({ hasText: 'Effective Java' });
-  await expect(effectiveJavaCard.getByRole('heading', { name: 'Effective Java', exact: true })).toBeVisible();
-  await expect(effectiveJavaCard.getByText('Joshua Bloch', { exact: true })).toBeVisible();
-  await expect(effectiveJavaCard.getByText('2008', { exact: true })).toBeVisible();
-  await expect(effectiveJavaCard.getByText('$107.28', { exact: true })).toBeVisible();
-  await expect(effectiveJavaCard.getByText('In stock: 100', { exact: true })).toBeVisible();
+    // Act — clear the search
+    await homePage.clearSearch();
 
-  for (const unrelatedTitle of [
-    'Java Puzzlers',
-    'Java Concurrency in Practice',
-    'Thinking in Java',
-    'Functional Programming in Java',
-  ]) {
-    await expect(page.getByRole('heading', { name: unrelatedTitle, exact: true })).not.toBeVisible();
-  }
-
-  await searchInput.clear();
-  await expect(bookCards).toHaveCount(29);
+    // Assert — full catalog is restored
+    await expect(homePage.bookGrid.cards).toHaveCount(TOTAL_BOOKS_COUNT);
+  });
 });
