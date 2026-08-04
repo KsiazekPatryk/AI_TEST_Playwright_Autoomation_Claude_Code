@@ -1,5 +1,11 @@
 # CLAUDE Instructions for Playwright + TypeScript (UI + API)
 
+## Memory
+
+Always read `memory.md` (project root) before starting work in this repository. It records
+project-specific conventions and reviewer feedback that override default behavior — treat it with
+the same authority as this file.
+
 ## Goal
 
 You are assisting with automated test development in this repository.

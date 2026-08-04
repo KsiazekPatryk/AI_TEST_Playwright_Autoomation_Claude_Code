@@ -1,5 +1,6 @@
 {
-  "enabledMcpjsonServers": [
-    "playwright"
-  ]
+  "enabledMcpjsonServers": ["playwright"],
+  "permissions": {
+    "allow": ["mcp_playwright", "Write(**)","Edit(**)"]
+  }
 }
