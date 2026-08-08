@@ -1,8 +1,6 @@
-import { test, expect } from '@fixtures/test.fixture';
-import { faker } from '@faker-js/faker';
 import { z } from 'zod';
-
-const API_URL = 'https://bookstoreapi.up.railway.app';
+import { faker } from '@faker-js/faker';
+import { test, expect } from '@fixtures/test.fixture';
 
 const AuthorSchema = z.object({
   id: z.number(),
@@ -10,156 +8,99 @@ const AuthorSchema = z.object({
   lastName: z.string(),
 });
 
-test.describe('GET /authors - positive scenarios', () => {
-  test('POS-AUTHORS-GET-001: returns the full author collection', async ({ request }) => {
-    const response = await request.get(`${API_URL}/authors`);
+test.describe('GET /authors - positive scenarios', { tag: ['@api', '@authors', '@smoke'] }, () => {
+  const createdAuthorIds: number[] = [];
 
-    expect(response.status()).toBe(200);
+  test.afterEach(async ({ authorsApiSteps }) => {
+    for (const id of createdAuthorIds.splice(0, createdAuthorIds.length)) {
+      await authorsApiSteps.deleteAuthor(id);
+    }
+  });
 
-    const body = await response.json();
+  test('should return the full author collection matching the documented schema (POS-AUTHORS-GET-001)', async ({
+    authorsApiSteps,
+  }) => {
+    const authors = await authorsApiSteps.getAuthors();
 
-    expect(Array.isArray(body)).toBeTruthy();
-    expect(body.length).toBeGreaterThan(0);
+    expect(Array.isArray(authors)).toBeTruthy();
+    expect(authors.length).toBeGreaterThan(0);
 
-    const result = AuthorSchema.safeParse(body[0]);
+    const result = AuthorSchema.safeParse(authors[0]);
     expect(result.success).toBeTruthy();
   });
 
-  test('POS-AUTHORS-GET-002: filters authors by firstName matching an existing author', async ({ request }) => {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
+  test('should filter authors by firstName matching an existing author (POS-AUTHORS-GET-002)', async ({
+    authorsApiSteps,
+  }) => {
+    const created = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(created.id);
 
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      data: { firstName, lastName },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
+    const authors = await authorsApiSteps.getAuthors({ firstName: created.firstName });
 
-    const response = await request.get(`${API_URL}/authors`, {
-      params: { firstName },
-    });
-
-    expect(response.status()).toBe(200);
-
-    const body = await response.json();
-    expect(Array.isArray(body)).toBeTruthy();
-
-    for (const author of body) {
-      expect(author.firstName.toLowerCase()).toContain(firstName.toLowerCase());
+    for (const author of authors) {
+      expect(author.firstName.toLowerCase()).toContain(created.firstName.toLowerCase());
     }
-
-    expect(body.some((author: { id: number }) => author.id === created.id)).toBeTruthy();
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
+    expect(authors.some((author) => author.id === created.id)).toBeTruthy();
   });
 
-  test('POS-AUTHORS-GET-003: filters authors by lastName matching an existing author', async ({ request }) => {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
+  test('should filter authors by lastName matching an existing author (POS-AUTHORS-GET-003)', async ({
+    authorsApiSteps,
+  }) => {
+    const created = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(created.id);
 
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      data: { firstName, lastName },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
+    const authors = await authorsApiSteps.getAuthors({ lastName: created.lastName });
 
-    const response = await request.get(`${API_URL}/authors`, {
-      params: { lastName },
-    });
-
-    expect(response.status()).toBe(200);
-
-    const body = await response.json();
-    expect(Array.isArray(body)).toBeTruthy();
-
-    for (const author of body) {
-      expect(author.lastName.toLowerCase()).toContain(lastName.toLowerCase());
+    for (const author of authors) {
+      expect(author.lastName.toLowerCase()).toContain(created.lastName.toLowerCase());
     }
-
-    expect(body.some((author: { id: number }) => author.id === created.id)).toBeTruthy();
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
+    expect(authors.some((author) => author.id === created.id)).toBeTruthy();
   });
 
-  test('POS-AUTHORS-GET-004: filters authors by firstName and lastName combined', async ({ request }) => {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
+  test('should filter authors by firstName and lastName combined (POS-AUTHORS-GET-004)', async ({
+    authorsApiSteps,
+  }) => {
+    const created = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(created.id);
 
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      data: { firstName, lastName },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
+    const authors = await authorsApiSteps.getAuthors({ firstName: created.firstName, lastName: created.lastName });
 
-    const response = await request.get(`${API_URL}/authors`, {
-      params: { firstName, lastName },
-    });
-
-    expect(response.status()).toBe(200);
-
-    const body = await response.json();
-    expect(Array.isArray(body)).toBeTruthy();
-
-    for (const author of body) {
-      expect(author.firstName.toLowerCase()).toContain(firstName.toLowerCase());
-      expect(author.lastName.toLowerCase()).toContain(lastName.toLowerCase());
+    for (const author of authors) {
+      expect(author.firstName.toLowerCase()).toContain(created.firstName.toLowerCase());
+      expect(author.lastName.toLowerCase()).toContain(created.lastName.toLowerCase());
     }
 
-    const matches = body.filter((author: { id: number }) => author.id === created.id);
+    const matches = authors.filter((author) => author.id === created.id);
     expect(matches).toHaveLength(1);
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
   });
 
-  test('POS-AUTHORS-GET-005: returns an empty array when the filter matches no author', async ({ request }) => {
-    const response = await request.get(`${API_URL}/authors`, {
-      params: { firstName: faker.string.uuid() },
-    });
+  test('should return an empty array when the filter matches no author (POS-AUTHORS-GET-005)', async ({
+    authorsApiSteps,
+  }) => {
+    const authors = await authorsApiSteps.getAuthors({ firstName: faker.string.uuid() });
 
-    expect(response.status()).toBe(200);
-
-    const body = await response.json();
-
-    expect(Array.isArray(body)).toBeTruthy();
-    expect(body).toHaveLength(0);
+    expect(Array.isArray(authors)).toBeTruthy();
+    expect(authors).toHaveLength(0);
   });
 
-  test('POS-AUTHORS-GET-006: is accessible without an Authorization header', async ({ request }) => {
-    const response = await request.get(`${API_URL}/authors`, {
-      headers: {},
-    });
+  test('should be accessible without an Authorization header (POS-AUTHORS-GET-006)', async ({ authorsApiSteps }) => {
+    const authors = await authorsApiSteps.getAuthors();
 
-    expect(response.status()).toBe(200);
-
-    const body = await response.json();
-    expect(Array.isArray(body)).toBeTruthy();
+    expect(Array.isArray(authors)).toBeTruthy();
   });
 
-  test('POS-AUTHORS-GET-007: a newly created author is retrievable via GET /authors', async ({ request }) => {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
+  test('should make a newly created author retrievable via GET /authors (POS-AUTHORS-GET-007)', async ({
+    authorsApiSteps,
+  }) => {
+    const created = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(created.id);
 
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName, lastName },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const response = await request.get(`${API_URL}/authors`, {
-      params: { firstName },
-    });
-
-    expect(response.status()).toBe(200);
-
-    const body = await response.json();
-    const match = body.find((author: { id: number }) => author.id === created.id);
+    const authors = await authorsApiSteps.getAuthors({ firstName: created.firstName });
+    const match = authors.find((author) => author.id === created.id);
 
     expect(match).toBeDefined();
-    expect(match.id).not.toBeNull();
-    expect(match.firstName).toBe(firstName);
-    expect(match.lastName).toBe(lastName);
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
+    expect(match?.id).not.toBeNull();
+    expect(match?.firstName).toBe(created.firstName);
+    expect(match?.lastName).toBe(created.lastName);
   });
 });
