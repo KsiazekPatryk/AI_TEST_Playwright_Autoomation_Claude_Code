@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { getRandomBookPayload } from '@api/factories/book.factory';
 import { BookPayload, BookResponse } from '@api/models/book.model';
 import { BooksAPIRequest } from '@api/requests/book/book.api.request';
-import { HTTP_200_OK, HTTP_201_CREATED } from '@api/consts/http.status.codes.const';
+import { HTTP_200_OK, HTTP_201_CREATED, HTTP_204_NO_CONTENT } from '@api/consts/http.status.codes.const';
 import { parseResponse } from '@utils/parse.response.utils';
 
 export class BooksAPISteps {
@@ -24,6 +24,7 @@ export class BooksAPISteps {
   }
 
   async deleteBook(id: number): Promise<void> {
-    await this.booksApiRequest.deleteBook(id);
+    const response = await this.booksApiRequest.deleteBook(id);
+    expect(response.status(), `cleanup failed for book ${id} - test data leaked`).toBe(HTTP_204_NO_CONTENT);
   }
 }

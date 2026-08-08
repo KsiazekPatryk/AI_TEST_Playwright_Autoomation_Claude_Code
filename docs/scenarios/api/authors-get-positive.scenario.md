@@ -274,10 +274,13 @@ JSON array containing the just-created author, with matching `firstName`/`lastNa
 
 # Notes
 - The spec does not document whether `firstName`/`lastName` filtering is exact-match, case-insensitive,
-  or partial/substring match. Assertions in POS-AUTHORS-GET-002/003/004 are written generically
-  ("corresponds to the filter value") to avoid assuming undocumented matching semantics — the automation
-  agent should confirm actual matching behavior against the running API and tighten the assertion once
-  confirmed, then update this file.
+  or partial/substring match. **Confirmed against the running API:** filtering is
+  **case-insensitive substring matching** (`?firstName=And` returns `Andrew`; `?firstName=ANDREW` also
+  returns `Andrew`). POS-AUTHORS-GET-002/003 now assert this explicitly by filtering on a lower-cased
+  partial prefix of a seeded author's name. This behavior is undocumented in the OpenAPI spec and should
+  be raised with the API team as a contract gap.
+- Every test seeds its own author via `POST /authors` and removes it in `afterEach`, so no test case
+  depends on pre-existing environment data.
 - No pagination, sorting, or `limit`/`offset` query parameters are documented for this endpoint, so no
   pagination scenarios are included.
 - No authentication/authorization scheme is declared for this endpoint or globally in the spec, so no

@@ -315,3 +315,9 @@ A validation/framework-level error body, or an ungraceful failure to be flagged 
 - If the API team documents error responses for this endpoint in the future (e.g. `400` for invalid body,
   `404` for a non-existent `id`), this file must be updated to assert those specific documented status
   codes and bodies instead of the current "capture and flag" approach.
+- NEG-AUTHORS-PATCH-008 (added during implementation) covers authentication robustness: the spec declares no
+  `securitySchemes` and no `security` requirement, so a syntactically valid but unparseable bearer token
+  must either be ignored (`200`) or rejected cleanly (`401`). The live API instead returns
+  `500 {"message":"Invalid token"}` for `PATCH /authors/{id}`, the same defect already recorded for
+  `GET /authors` in NEG-AUTHORS-GET-006. The test is marked `test.fail()` so the defect stays visible in
+  reports and the test turns red the moment the API is fixed.

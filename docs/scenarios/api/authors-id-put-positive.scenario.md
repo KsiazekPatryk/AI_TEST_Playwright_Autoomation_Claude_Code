@@ -79,8 +79,8 @@ POS-AUTHORS-PUT-002
 Update an existing author with only `firstName` provided (`lastName` omitted from the payload).
 
 ## Purpose
-Confirm the endpoint accepts a partial payload, since `lastName` is not declared as required by
-`UpdateAuthorPayload`, and observe whether the omitted field is left unchanged or cleared.
+Confirm how the endpoint handles a partial payload, since `lastName` is not declared as required by
+`UpdateAuthorPayload`. The live API rejects it outright — see the contract deviation below.
 
 ### Headers
 `Content-Type: application/json`.
@@ -97,19 +97,27 @@ None.
 ```
 
 ## Expected Status Code
-200 OK
+400 Bad Request — CONTRACT DEVIATION (verified against the live API on 2026-08-08)
+
+`UpdateAuthorPayload` declares `firstName` and `lastName` as optional (no `required` array), so the
+documented expectation would be `200 OK`. The running API instead rejects the payload with
+`400` and a per-field `"<field> incorrect input data"` message. Raised with the API team; the test
+asserts the actual `400` behavior so the deviation stays visible and this file is the record of it.
 
 ## Expected Response
-A JSON object representing the updated author; whether `lastName` retains its prior value or is
-cleared/nulled is undocumented and must be observed via a follow-up `GET`.
+The standard API error envelope:
+```json
+{ "timestamp": "...", "status": 400, "error": "Bad Request", "message": ["lastName incorrect input data"] }
+```
 
 ## Assertions
-- Status assertion: response status code equals 200.
-- Schema assertion: response body is a JSON object.
-- Business assertion: a subsequent `GET /authors/{id}` returns `firstName: "Emily"`.
-- Business assertion (record actual behavior): the persisted `lastName` value is recorded — either
-  unchanged (partial-merge semantics) or cleared (full-replace semantics) — as a contract-gap finding
-  either way, since the spec does not document which applies.
+- Status assertion: response status code equals 400.
+- Schema assertion: response body matches the API error envelope (`ApiErrorSchema`), is served as
+  `application/json`, and leaks no internal implementation detail.
+- Business assertion: `message` contains `"lastName incorrect input data"`.
+- Business assertion: the partial-update question this case was written to answer does not arise —
+  the API refuses partial `PUT` bodies outright, and `PATCH /authors/{id}` is the operation that
+  provides partial-update semantics (see POS-AUTHORS-PATCH-001/002).
 
 ---
 
@@ -120,8 +128,8 @@ POS-AUTHORS-PUT-003
 Update an existing author with only `lastName` provided (`firstName` omitted from the payload).
 
 ## Purpose
-Confirm the endpoint accepts a partial payload, since `firstName` is not declared as required by
-`UpdateAuthorPayload`.
+Confirm how the endpoint handles a partial payload, since `firstName` is not declared as required by
+`UpdateAuthorPayload`. The live API rejects it outright — see the contract deviation below.
 
 ### Headers
 `Content-Type: application/json`.
@@ -138,18 +146,24 @@ None.
 ```
 
 ## Expected Status Code
-200 OK
+400 Bad Request — CONTRACT DEVIATION (verified against the live API on 2026-08-08)
+
+`UpdateAuthorPayload` declares `firstName` and `lastName` as optional (no `required` array), so the
+documented expectation would be `200 OK`. The running API instead rejects the payload with
+`400` and a per-field `"<field> incorrect input data"` message. Raised with the API team; the test
+asserts the actual `400` behavior so the deviation stays visible and this file is the record of it.
 
 ## Expected Response
-A JSON object representing the updated author; whether `firstName` retains its prior value or is
-cleared/nulled is undocumented and must be observed.
+The standard API error envelope:
+```json
+{ "timestamp": "...", "status": 400, "error": "Bad Request", "message": ["firstName incorrect input data"] }
+```
 
 ## Assertions
-- Status assertion: response status code equals 200.
-- Schema assertion: response body is a JSON object.
-- Business assertion: a subsequent `GET /authors/{id}` returns `lastName: "Woolf"`.
-- Business assertion (record actual behavior): the persisted `firstName` value is recorded, consistent
-  with the observation made in POS-AUTHORS-PUT-002.
+- Status assertion: response status code equals 400.
+- Schema assertion: response body matches the API error envelope (`ApiErrorSchema`), is served as
+  `application/json`, and leaks no internal implementation detail.
+- Business assertion: `message` contains `"firstName incorrect input data"`.
 
 ---
 
@@ -160,8 +174,9 @@ POS-AUTHORS-PUT-004
 Update an existing author with an empty payload (`{}`).
 
 ## Purpose
-Confirm the endpoint accepts a fully empty request body, since neither `firstName` nor `lastName` is
-declared as required on `UpdateAuthorPayload` (a valid — if unusual — instance of the schema).
+Confirm how the endpoint handles a fully empty request body, since neither `firstName` nor `lastName`
+is declared as required on `UpdateAuthorPayload` (a valid — if unusual — instance of the schema). The
+live API rejects it — see the contract deviation below.
 
 ### Headers
 `Content-Type: application/json`.
@@ -178,19 +193,26 @@ None.
 ```
 
 ## Expected Status Code
-200 OK
+400 Bad Request — CONTRACT DEVIATION (verified against the live API on 2026-08-08)
+
+`UpdateAuthorPayload` declares `firstName` and `lastName` as optional (no `required` array), so the
+documented expectation would be `200 OK`. The running API instead rejects the payload with
+`400` and a per-field `"<field> incorrect input data"` message. Raised with the API team; the test
+asserts the actual `400` behavior so the deviation stays visible and this file is the record of it.
 
 ## Expected Response
-A JSON object; whether the author's existing `firstName`/`lastName` are left unchanged or cleared is
-undocumented and must be observed.
+The standard API error envelope:
+```json
+{ "timestamp": "...", "status": 400, "error": "Bad Request", "message": ["firstName incorrect input data", "lastName incorrect input data"] }
+```
 
 ## Assertions
-- Status assertion: response status code equals 200.
-- Schema assertion: response body is a JSON object.
-- Business assertion: the record is not deleted and remains retrievable via `GET /authors/{id}` after the
-  call.
-- Business assertion (record actual behavior): whether the prior `firstName`/`lastName` values persist or
-  are cleared is recorded as a contract-gap finding.
+- Status assertion: response status code equals 400.
+- Schema assertion: response body matches the API error envelope (`ApiErrorSchema`), is served as
+  `application/json`, and leaks no internal implementation detail.
+- Business assertion: `message` contains `"firstName incorrect input data"` and `"lastName incorrect input data"`.
+- Business assertion: the author is not deleted or mutated — a follow-up `GET /authors/{id}` returns
+  the pre-request `firstName`/`lastName` values unchanged.
 
 ---
 

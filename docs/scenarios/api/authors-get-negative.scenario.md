@@ -217,7 +217,53 @@ Actual behavior must be observed; no specific documented error body exists to as
 - Status assertion: response status code is captured and is not an unhandled `5xx` server crash.
 - Schema assertion: if a JSON body is returned, it is well-formed.
 
+---
+
+## Test Case ID
+NEG-AUTHORS-GET-006
+
+## Scenario
+Send an invalid/unparseable bearer token in the `Authorization` header.
+
+## Purpose
+Confirm that a public endpoint declaring no security scheme handles a malformed credential without an
+ungraceful failure.
+
+### Headers
+- `Authorization`: `Bearer invalid.token.value`
+
+### Path Params
+None.
+
+### Query Params
+None.
+
+### Request Body
+None.
+
+## Expected Status Code
+Not documented in the OpenAPI spec. Since no `security` requirement is declared, the header must either
+be ignored (`200`) or rejected cleanly (`401`).
+
+## Expected Response
+Either the normal author collection or a well-formed authentication error.
+
+## Assertions
+- Status assertion: response status code is not `5xx`.
+- Status assertion: response status code is `200` or `401`.
+
+## Observed Behavior — OPEN DEFECT
+The live API returns **`500 Internal Server Error`** with body
+`{"error":"Internal Server Error","message":"Invalid token","path":"/authors"}`. A malformed credential
+crashes a public read endpoint. `Authorization: garbage`, `Authorization: Bearer ` (empty) and
+`Authorization: Basic abc` all correctly return `200`, so the failure is specific to a non-empty,
+non-parseable bearer value. The automated test is marked `test.fail()` so the defect stays visible and
+turns red as soon as the API is fixed.
+
 # Notes
+- Contrary to the original assumption below, an authentication-related negative case **does** apply: see
+  NEG-AUTHORS-GET-006. No auth is documented, but the endpoint still parses the `Authorization` header
+  and fails with a `500` on malformed input.
 - The OpenAPI spec documents only the `200` response for `GET /authors`. No `400`, `401`, `403`, `404`,
   or `500` responses are declared for this operation. Per the "never assume undocumented behavior" rule,
   none of the test cases in this file assert a specific documented error status code — they instead

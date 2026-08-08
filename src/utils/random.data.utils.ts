@@ -19,3 +19,12 @@ export function getRandomFirstName(): string {
 export function getRandomLastName(): string {
   return sanitizeName(faker.person.lastName());
 }
+
+/**
+ * Letters-only name that is long and unique enough to match no existing author, so an
+ * empty-result assertion cannot be perturbed by concurrently running specs. Deliberately kept
+ * within the API's accepted character set, so "no match" is not confused with "invalid value".
+ */
+export function getRandomNonExistingName(): string {
+  return `NoMatch${faker.string.alpha({ length: 20 })}`;
+}

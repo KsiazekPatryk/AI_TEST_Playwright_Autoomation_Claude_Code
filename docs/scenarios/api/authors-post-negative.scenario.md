@@ -406,3 +406,9 @@ Actual behavior must be observed; no documented error body exists to assert agai
 - If the API team documents error responses for this endpoint in the future (e.g. `400` for invalid field
   types, `415` for unsupported content type), this file must be updated to assert those specific
   documented status codes and bodies.
+- NEG-AUTHORS-POST-010 (added during implementation) covers authentication robustness: the spec declares no
+  `securitySchemes` and no `security` requirement, so a syntactically valid but unparseable bearer token
+  must either be ignored (`201`) or rejected cleanly (`401`). The live API instead returns
+  `500 {"message":"Invalid token"}` for `POST /authors`, the same defect already recorded for
+  `GET /authors` in NEG-AUTHORS-GET-006. The test is marked `test.fail()` so the defect stays visible in
+  reports and the test turns red the moment the API is fixed.

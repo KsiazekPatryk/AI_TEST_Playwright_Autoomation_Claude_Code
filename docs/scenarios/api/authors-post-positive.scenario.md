@@ -73,8 +73,8 @@ POS-AUTHORS-POST-002
 Create an author with only `firstName` provided (`lastName` omitted).
 
 ## Purpose
-Confirm the endpoint accepts a partial payload, since `lastName` is not declared as required by
-`CreateAuthorPayload`.
+Confirm how the endpoint handles a partial payload, since `lastName` is not declared as required by
+`CreateAuthorPayload`. The live API rejects it — see the contract deviation below.
 
 ### Headers
 `Content-Type: application/json`.
@@ -91,17 +91,24 @@ None.
 ```
 
 ## Expected Status Code
-201 Created
+400 Bad Request — CONTRACT DEVIATION (verified against the live API on 2026-08-08)
+
+`CreateAuthorPayload` declares `firstName` and `lastName` as optional (no `required` array), so the
+documented expectation would be `201 Created`. The running API instead rejects the payload with
+`400` and a per-field `"<field> incorrect input data"` message. Raised with the API team; the test
+asserts the actual `400` behavior so the deviation stays visible and this file is the record of it.
 
 ## Expected Response
-A JSON object representing the created author with `firstName` set and `lastName` absent/`null`/empty
-(exact representation undocumented).
+The standard API error envelope:
+```json
+{ "timestamp": "...", "status": 400, "error": "Bad Request", "message": ["lastName incorrect input data"] }
+```
 
 ## Assertions
-- Status assertion: response status code equals 201.
-- Schema assertion: response body is a JSON object.
-- Business assertion: the created author is retrievable via `GET /authors?firstName=Herman` and its
-  `firstName` matches the submitted value.
+- Status assertion: response status code equals 400.
+- Schema assertion: response body matches the API error envelope (`ApiErrorSchema`), is served as
+  `application/json`, and leaks no internal implementation detail.
+- Business assertion: `message` contains `"lastName incorrect input data"`.
 
 ---
 
@@ -112,8 +119,8 @@ POS-AUTHORS-POST-003
 Create an author with only `lastName` provided (`firstName` omitted).
 
 ## Purpose
-Confirm the endpoint accepts a partial payload, since `firstName` is not declared as required by
-`CreateAuthorPayload`.
+Confirm how the endpoint handles a partial payload, since `firstName` is not declared as required by
+`CreateAuthorPayload`. The live API rejects it — see the contract deviation below.
 
 ### Headers
 `Content-Type: application/json`.
@@ -130,16 +137,24 @@ None.
 ```
 
 ## Expected Status Code
-201 Created
+400 Bad Request — CONTRACT DEVIATION (verified against the live API on 2026-08-08)
+
+`CreateAuthorPayload` declares `firstName` and `lastName` as optional (no `required` array), so the
+documented expectation would be `201 Created`. The running API instead rejects the payload with
+`400` and a per-field `"<field> incorrect input data"` message. Raised with the API team; the test
+asserts the actual `400` behavior so the deviation stays visible and this file is the record of it.
 
 ## Expected Response
-A JSON object representing the created author with `lastName` set and `firstName` absent/`null`/empty.
+The standard API error envelope:
+```json
+{ "timestamp": "...", "status": 400, "error": "Bad Request", "message": ["firstName incorrect input data"] }
+```
 
 ## Assertions
-- Status assertion: response status code equals 201.
-- Schema assertion: response body is a JSON object.
-- Business assertion: the created author is retrievable via `GET /authors?lastName=Melville` and its
-  `lastName` matches the submitted value.
+- Status assertion: response status code equals 400.
+- Schema assertion: response body matches the API error envelope (`ApiErrorSchema`), is served as
+  `application/json`, and leaks no internal implementation detail.
+- Business assertion: `message` contains `"firstName incorrect input data"`.
 
 ---
 
@@ -150,8 +165,9 @@ POS-AUTHORS-POST-004
 Create an author with an empty payload (`{}`).
 
 ## Purpose
-Confirm the endpoint accepts a fully empty request body, since neither `firstName` nor `lastName` is
-declared as required on `CreateAuthorPayload` (this is a valid — if unusual — instance of the schema).
+Confirm how the endpoint handles a fully empty request body, since neither `firstName` nor `lastName`
+is declared as required on `CreateAuthorPayload` (a valid — if unusual — instance of the schema). The
+live API rejects it — see the contract deviation below.
 
 ### Headers
 `Content-Type: application/json`.
@@ -168,16 +184,25 @@ None.
 ```
 
 ## Expected Status Code
-201 Created
+400 Bad Request — CONTRACT DEVIATION (verified against the live API on 2026-08-08)
+
+`CreateAuthorPayload` declares `firstName` and `lastName` as optional (no `required` array), so the
+documented expectation would be `201 Created`. The running API instead rejects the payload with
+`400` and a per-field `"<field> incorrect input data"` message. Raised with the API team; the test
+asserts the actual `400` behavior so the deviation stays visible and this file is the record of it.
 
 ## Expected Response
-A JSON object representing a created author with no name fields populated.
+The standard API error envelope:
+```json
+{ "timestamp": "...", "status": 400, "error": "Bad Request", "message": ["firstName incorrect input data", "lastName incorrect input data"] }
+```
 
 ## Assertions
-- Status assertion: response status code equals 201.
-- Schema assertion: response body is a JSON object.
-- Business assertion: the record is created (does not silently fail) and is countable in a subsequent
-  `GET /authors` call.
+- Status assertion: response status code equals 400.
+- Schema assertion: response body matches the API error envelope (`ApiErrorSchema`), is served as
+  `application/json`, and leaks no internal implementation detail.
+- Business assertion: `message` contains `"firstName incorrect input data"` and `"lastName incorrect input data"`.
+- Business assertion: no author is created as a side effect of the rejected request.
 
 ---
 

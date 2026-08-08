@@ -9,8 +9,8 @@ export class AuthorsAPIRequest {
     return this.api.post(API_ENDPOINTS.authors.base, payload, headers);
   }
 
-  async getAuthors(params?: QueryParams): Promise<APIResponse> {
-    return this.api.get(API_ENDPOINTS.authors.base, params);
+  async getAuthors(params?: QueryParams, headers?: RequestHeaders): Promise<APIResponse> {
+    return this.api.get(API_ENDPOINTS.authors.base, params, headers);
   }
 
   /**
@@ -30,8 +30,8 @@ export class AuthorsAPIRequest {
     return this.api.patch(API_ENDPOINTS.authors.byId(id), payload, headers);
   }
 
-  async deleteAuthor(id: number | string): Promise<APIResponse> {
-    return this.api.delete(API_ENDPOINTS.authors.byId(id));
+  async deleteAuthor(id: number | string, headers?: RequestHeaders): Promise<APIResponse> {
+    return this.api.delete(API_ENDPOINTS.authors.byId(id), headers);
   }
 
   async deleteAuthorsCollection(): Promise<APIResponse> {

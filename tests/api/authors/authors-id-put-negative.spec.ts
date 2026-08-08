@@ -1,259 +1,321 @@
+import { APIRequestContext } from '@playwright/test';
 import { test, expect } from '@fixtures/test.fixture';
-import { faker } from '@faker-js/faker';
+import { AuthorResponse, AuthorSchema } from '@api/models/author.model';
+import {
+  HTTP_200_OK,
+  HTTP_201_CREATED,
+  HTTP_204_NO_CONTENT,
+  HTTP_400_BAD_REQUEST,
+  HTTP_404_NOT_FOUND,
+  HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+  HTTP_500_INTERNAL_SERVER_ERROR,
+} from '@api/consts/http.status.codes.const';
+import { CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT_PLAIN } from '@api/consts/content.types.const';
+import {
+  NOT_SUPPORTED_MESSAGE_FRAGMENT,
+  OPERATION_NOT_PERFORMED_MESSAGE,
+  incorrectInputDataMessage,
+  invalidPathVariableMessage,
+} from '@api/consts/api.error.messages.const';
+import {
+  DECIMAL_ID,
+  INVALID_BEARER_TOKEN,
+  MALFORMED_JSON_BODY,
+  NON_NUMERIC_ID,
+  OVERSIZED_NAME,
+  SQL_INJECTION_VALUE,
+  XSS_INJECTION_VALUE,
+} from '@data/negative.inputs.const';
+import { getApiErrorMessages, parseApiError } from '@utils/api.error.utils';
+import { parseResponse } from '@utils/parse.response.utils';
+import { getRandomFirstName, getRandomLastName } from '@utils/random.data.utils';
 
 const API_URL = 'https://bookstoreapi.up.railway.app';
 
-// The OpenAPI spec documents only a 200 response for PUT /authors/{id} — no error responses
-// (400, 401, 403, 404, 415, 500) are declared, including no documented 404 for a non-existent id.
-// These tests capture actual API behavior for undocumented/malformed input rather than asserting
-// invented status codes. A 5xx response is always flagged as a robustness defect.
+// ARCHITECTURE NOTE: this file still calls the raw `request` fixture instead of the
+// AuthorsAPIRequest / AuthorsAPISteps layers used by the POST, PATCH and DELETE author specs. That
+// refactor is tracked separately; the assertion, cleanup and schema fixes below are applied in
+// place so this file matches its siblings' rigour in the meantime.
 
-// The live API also rejects firstName/lastName values containing characters outside [A-Za-z]
-// (observed 400 "incorrect input data" for apostrophes, digits, etc. that faker person names can
-// occasionally include). Setup authors are seeded with sanitized names to keep tests deterministic.
-const sanitizedName = (value: string): string => value.replace(/[^a-zA-Z]/g, '') || 'Test';
+// The OpenAPI spec documents only a 200 response for PUT /authors/{id} - no error responses are
+// declared. Every case below was probed directly against the live API and asserts the exact
+// observed status code and error message, rather than a "not 200 / below 500" range that would let
+// a 400 -> 404/401 regression pass unnoticed.
 
-test.describe('PUT /authors/{id} - negative and robustness scenarios', () => {
-  test('NEG-AUTHORS-PUT-001: attempting to update a non-existent id does not silently succeed', async ({
-    request,
-  }) => {
-    const nonExistentId = 999999999;
-
-    const updateResponse = await request.put(`${API_URL}/authors/${nonExistentId}`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: 'Ghost', lastName: 'Writer' },
-    });
-
-    expect(updateResponse.status()).not.toBe(200);
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    const getResponse = await request.get(`${API_URL}/authors/${nonExistentId}`);
-    expect(getResponse.status()).not.toBe(200);
-  });
-
-  test('NEG-AUTHORS-PUT-002: attempting to update using a non-numeric id is handled gracefully', async ({
-    request,
-  }) => {
-    const updateResponse = await request.put(`${API_URL}/authors/abc`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: 'Charlotte', lastName: 'Bronte' },
-    });
-
-    expect(updateResponse.status()).not.toBe(200);
-    expect(updateResponse.status()).toBeLessThan(500);
-  });
-
-  test('NEG-AUTHORS-PUT-003: attempting to update using a negative id does not succeed', async ({ request }) => {
-    const updateResponse = await request.put(`${API_URL}/authors/-1`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: 'Charlotte', lastName: 'Bronte' },
-    });
-
-    expect(updateResponse.status()).not.toBe(200);
-    expect(updateResponse.status()).toBeLessThan(500);
-  });
-
-  test('NEG-AUTHORS-PUT-004: attempting to update using a decimal id is handled gracefully', async ({ request }) => {
-    const updateResponse = await request.put(`${API_URL}/authors/1.5`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: 'Charlotte', lastName: 'Bronte' },
-    });
-
-    expect(updateResponse.status()).not.toBe(200);
-    expect(updateResponse.status()).toBeLessThan(500);
-  });
-
-  test('NEG-AUTHORS-PUT-005: rejects a request with no body sent, and leaves the author unchanged', async ({
-    request,
-  }) => {
-    const firstName = sanitizedName(faker.person.firstName());
-    const lastName = sanitizedName(faker.person.lastName());
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName, lastName },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'application/json' },
-    });
-    expect(updateResponse.status()).not.toBe(200);
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
-    expect(getResponse.status()).toBe(200);
-    const author = await getResponse.json();
-    expect(author.firstName).toBe(firstName);
-    expect(author.lastName).toBe(lastName);
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
-
-  test('NEG-AUTHORS-PUT-006: handles malformed JSON syntax and leaves the author unchanged', async ({ request }) => {
-    const firstName = sanitizedName(faker.person.firstName());
-    const lastName = sanitizedName(faker.person.lastName());
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName, lastName },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: '{ "firstName": "Jane", "lastName": }',
-    });
-    expect(updateResponse.status()).not.toBe(200);
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
-    expect(getResponse.status()).toBe(200);
-    const author = await getResponse.json();
-    expect(author.firstName).toBe(firstName);
-    expect(author.lastName).toBe(lastName);
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
-
-  test('NEG-AUTHORS-PUT-007: handles firstName sent as an integer instead of a string', async ({ request }) => {
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: sanitizedName(faker.person.firstName()), lastName: sanitizedName(faker.person.lastName()) },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: 12345, lastName: 'Austen' },
-    });
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    if (updateResponse.status() === 200) {
-      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
-      const author = await getResponse.json();
-      expect(author.firstName).toBeDefined();
-    }
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
-
-  test('NEG-AUTHORS-PUT-008: handles lastName sent as an array instead of a string', async ({ request }) => {
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: sanitizedName(faker.person.firstName()), lastName: sanitizedName(faker.person.lastName()) },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: 'Jane', lastName: ['Austen'] },
-    });
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    if (updateResponse.status() === 200) {
-      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
-      const author = await getResponse.json();
-      expect(author.lastName).toBeDefined();
-    }
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
-
-  test('NEG-AUTHORS-PUT-009: ignores client-supplied id and undocumented fields', async ({ request }) => {
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: sanitizedName(faker.person.firstName()), lastName: sanitizedName(faker.person.lastName()) },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: 'Jane', lastName: 'Austen', id: 999, createdAt: '2020-01-01' },
-    });
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    if (updateResponse.status() === 200) {
-      const updated = await updateResponse.json();
-      expect(updated.id).toBe(created.id);
-      expect(updated.id).not.toBe(999);
-      expect(updated.createdAt).toBeUndefined();
-
-      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
-      const author = await getResponse.json();
-      expect(author.id).toBe(created.id);
-      expect(author.createdAt).toBeUndefined();
-    }
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
-
-  test('NEG-AUTHORS-PUT-010: handles an excessively long firstName value', async ({ request }) => {
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: sanitizedName(faker.person.firstName()), lastName: sanitizedName(faker.person.lastName()) },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const longFirstName = 'a'.repeat(5000);
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: longFirstName, lastName: 'Bronte' },
-    });
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    if (updateResponse.status() === 200) {
-      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
-      const author = await getResponse.json();
-      expect(author.firstName).toBe(longFirstName);
-    }
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
-
-  test('NEG-AUTHORS-PUT-011: handles injection-style characters in firstName and lastName', async ({ request }) => {
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: sanitizedName(faker.person.firstName()), lastName: sanitizedName(faker.person.lastName()) },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: "' OR '1'='1", lastName: '<script>alert(1)</script>' },
-    });
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    if (updateResponse.status() === 200) {
-      const updated = await updateResponse.json();
-      expect(updated.firstName).toBe("' OR '1'='1");
-      expect(updated.lastName).toBe('<script>alert(1)</script>');
-    }
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
-
-  test('NEG-AUTHORS-PUT-012: handles an unsupported Content-Type header', async ({ request }) => {
-    const createResponse = await request.post(`${API_URL}/authors`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: { firstName: sanitizedName(faker.person.firstName()), lastName: sanitizedName(faker.person.lastName()) },
-    });
-    expect(createResponse.status()).toBe(201);
-    const created = await createResponse.json();
-
-    const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
-      headers: { 'Content-Type': 'text/plain' },
-      data: '{ "firstName": "Jane", "lastName": "Austen" }',
-    });
-    expect(updateResponse.status()).not.toBe(200);
-    expect(updateResponse.status()).toBeLessThan(500);
-
-    await request.delete(`${API_URL}/authors/${created.id}`);
-  });
+// Name generation goes through the shared helpers, which already sanitize faker values down to
+// the letters-only, 3-character minimum the live API enforces. The previous file-local sanitizer
+// only guarded against an empty result and intermittently seeded names the API rejected with 400.
+const randomFirstName = getRandomFirstName;
+const randomLastName = getRandomLastName;
+const validPayload = (): { firstName: string; lastName: string } => ({
+  firstName: randomFirstName(),
+  lastName: randomLastName(),
 });
+
+async function seedAuthor(request: APIRequestContext): Promise<AuthorResponse> {
+  const response = await request.post(`${API_URL}/authors`, {
+    headers: { 'Content-Type': CONTENT_TYPE_JSON },
+    data: validPayload(),
+  });
+
+  expect(response.status(), 'test setup must be able to seed an author').toBe(HTTP_201_CREATED);
+  return parseResponse<AuthorResponse>(response);
+}
+
+test.describe(
+  'PUT /authors/{id} - negative and robustness scenarios',
+  { tag: ['@api', '@authors', '@regression'] },
+  () => {
+    const createdAuthorIds: number[] = [];
+
+    test.afterEach(async ({ request }) => {
+      for (const id of createdAuthorIds.splice(0, createdAuthorIds.length)) {
+        const response = await request.delete(`${API_URL}/authors/${id}`);
+        expect(response.status(), `cleanup failed for author ${id} - test data leaked`).toBe(HTTP_204_NO_CONTENT);
+      }
+    });
+
+    test('should return 404 when updating a non-existent id (NEG-AUTHORS-PUT-001)', async ({ request }) => {
+      // The absent id is created and then deleted rather than hardcoded, so "does not exist" is a
+      // guaranteed precondition instead of an assumption about the environment's data.
+      const deleted = await seedAuthor(request);
+      const deleteResponse = await request.delete(`${API_URL}/authors/${deleted.id}`);
+      expect(deleteResponse.status()).toBe(HTTP_204_NO_CONTENT);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${deleted.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: validPayload(),
+      });
+
+      // Contract gap: 404 is not documented for this operation, only 200.
+      expect(updateResponse.status()).toBe(HTTP_404_NOT_FOUND);
+      expect(await updateResponse.body(), 'the 404 is returned with an empty body').toHaveLength(0);
+
+      const getResponse = await request.get(`${API_URL}/authors/${deleted.id}`);
+      expect(getResponse.status(), 'a rejected update must not resurrect the author').toBe(HTTP_404_NOT_FOUND);
+    });
+
+    test('should reject an update using a non-numeric id (NEG-AUTHORS-PUT-002)', async ({ request }) => {
+      const updateResponse = await request.put(`${API_URL}/authors/${NON_NUMERIC_ID}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: validPayload(),
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toContain(invalidPathVariableMessage(NON_NUMERIC_ID));
+    });
+
+    test('should return 404 when updating using a negative id (NEG-AUTHORS-PUT-003)', async ({ request }) => {
+      const updateResponse = await request.put(`${API_URL}/authors/-1`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: validPayload(),
+      });
+
+      // A negative id is a syntactically valid int64, so it is treated as "not found" rather than as
+      // a malformed path variable - the same behavior as any other non-existent id.
+      expect(updateResponse.status()).toBe(HTTP_404_NOT_FOUND);
+      expect(await updateResponse.body()).toHaveLength(0);
+    });
+
+    test('should reject an update using a decimal id (NEG-AUTHORS-PUT-004)', async ({ request }) => {
+      const updateResponse = await request.put(`${API_URL}/authors/${DECIMAL_ID}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: validPayload(),
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toContain(invalidPathVariableMessage(DECIMAL_ID));
+    });
+
+    test('should reject a request with no body sent and leave the author unchanged (NEG-AUTHORS-PUT-005)', async ({
+      request,
+    }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toContain(OPERATION_NOT_PERFORMED_MESSAGE);
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual(created);
+    });
+
+    test('should reject malformed JSON syntax and leave the author unchanged (NEG-AUTHORS-PUT-006)', async ({
+      request,
+    }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: MALFORMED_JSON_BODY,
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toContain(OPERATION_NOT_PERFORMED_MESSAGE);
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual(created);
+    });
+
+    test('should reject firstName sent as an integer and leave the author unchanged (NEG-AUTHORS-PUT-007)', async ({
+      request,
+    }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: { firstName: 12345, lastName: randomLastName() },
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toContain(incorrectInputDataMessage('firstName'));
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual(created);
+    });
+
+    test('should reject lastName sent as an array and leave the author unchanged (NEG-AUTHORS-PUT-008)', async ({
+      request,
+    }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: { firstName: randomFirstName(), lastName: [randomLastName()] },
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toContain(OPERATION_NOT_PERFORMED_MESSAGE);
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual(created);
+    });
+
+    test('should ignore a client-supplied id and undocumented fields (NEG-AUTHORS-PUT-009)', async ({ request }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const clientSuppliedId = 999;
+      const payload = validPayload();
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: { ...payload, id: clientSuppliedId, createdAt: '2020-01-01' },
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_200_OK);
+
+      // AuthorSchema is strict, so this also proves `createdAt` is not echoed back to the client.
+      const result = AuthorSchema.safeParse(await parseResponse<unknown>(updateResponse));
+      expect(
+        result.success,
+        `undocumented fields must not appear in the response: ${JSON.stringify(result.error?.issues)}`,
+      ).toBe(true);
+      expect(result.data, 'the path id wins over any client-supplied id').toEqual({ id: created.id, ...payload });
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual({ id: created.id, ...payload });
+    });
+
+    test('should reject an excessively long firstName and leave the author unchanged (NEG-AUTHORS-PUT-010)', async ({
+      request,
+    }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: { firstName: OVERSIZED_NAME, lastName: randomLastName() },
+      });
+
+      expect(updateResponse.status(), 'no maxLength is documented, but the API enforces one').toBe(HTTP_400_BAD_REQUEST);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toContain(incorrectInputDataMessage('firstName'));
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual(created);
+    });
+
+    test('should reject injection-style characters and leave the author unchanged (NEG-AUTHORS-PUT-011)', async ({
+      request,
+    }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON },
+        data: { firstName: SQL_INJECTION_VALUE, lastName: XSS_INJECTION_VALUE },
+      });
+
+      expect(updateResponse.status(), 'injection payloads must be rejected by name validation').toBe(
+        HTTP_400_BAD_REQUEST,
+      );
+
+      // parseApiError also proves the body is JSON and never text/html, so a rejected payload can
+      // never be reflected back in an executable form.
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error)).toEqual(
+        expect.arrayContaining([incorrectInputDataMessage('firstName'), incorrectInputDataMessage('lastName')]),
+      );
+      expect(JSON.stringify(error), 'the rejected payload must not be echoed back verbatim').not.toContain(
+        XSS_INJECTION_VALUE,
+      );
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual(created);
+    });
+
+    test('should reject an unsupported Content-Type header (NEG-AUTHORS-PUT-012)', async ({ request }) => {
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_TEXT_PLAIN },
+        data: '{ "firstName": "Jane", "lastName": "Austen" }',
+      });
+
+      expect(updateResponse.status()).toBe(HTTP_415_UNSUPPORTED_MEDIA_TYPE);
+      const error = await parseApiError(updateResponse);
+      expect(getApiErrorMessages(error).join(' ')).toContain(NOT_SUPPORTED_MESSAGE_FRAGMENT);
+
+      const getResponse = await request.get(`${API_URL}/authors/${created.id}`);
+      expect(await parseResponse<AuthorResponse>(getResponse)).toEqual(created);
+    });
+
+    test('should not fail with a server error when an invalid bearer token is supplied (NEG-AUTHORS-PUT-013)', async ({
+      request,
+    }) => {
+      // KNOWN DEFECT (expected failure): the endpoint declares no security scheme, so an unparseable
+      // credential must either be ignored (200) or rejected cleanly (401). The live API instead
+      // returns 500 {"message":"Invalid token"} on every /authors verb - the same defect already
+      // recorded for GET in NEG-AUTHORS-GET-006. Marked with test.fail() so the defect stays visible
+      // and this test turns red the moment the API is fixed.
+      test.fail();
+
+      const created = await seedAuthor(request);
+      createdAuthorIds.push(created.id);
+
+      const updateResponse = await request.put(`${API_URL}/authors/${created.id}`, {
+        headers: { 'Content-Type': CONTENT_TYPE_JSON, Authorization: INVALID_BEARER_TOKEN },
+        data: validPayload(),
+      });
+
+      expect(updateResponse.status(), 'an invalid token must not crash a public endpoint').toBeLessThan(
+        HTTP_500_INTERNAL_SERVER_ERROR,
+      );
+    });
+  },
+);
