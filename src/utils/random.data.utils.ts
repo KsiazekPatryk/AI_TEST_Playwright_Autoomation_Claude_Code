@@ -28,3 +28,12 @@ export function getRandomLastName(): string {
 export function getRandomNonExistingName(): string {
   return `NoMatch${faker.string.alpha({ length: 20 })}`;
 }
+
+/**
+ * Short alphanumeric fragment used to build a value (e.g. a book title) that is unique to a single
+ * test, so substring-filter assertions can't be perturbed by data created by concurrently running
+ * specs (tests run with `fullyParallel: true`).
+ */
+export function getRandomUniqueFragment(): string {
+  return faker.string.alphanumeric(10);
+}

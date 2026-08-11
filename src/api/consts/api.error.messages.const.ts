@@ -19,3 +19,8 @@ export function invalidPathVariableMessage(value: string): string {
 
 /** Fragment shared by the 415 (unsupported media type) and 405 (method not allowed) messages. */
 export const NOT_SUPPORTED_MESSAGE_FRAGMENT = 'not supported';
+
+/** Referential-integrity rejection returned by POST/PUT /books when an authors id does not exist. */
+export function authorNotFoundMessage(id: number): string {
+  return `Can not find author with given id: ${id}`;
+}

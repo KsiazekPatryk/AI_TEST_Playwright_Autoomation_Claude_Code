@@ -20,6 +20,13 @@ export const XSS_INJECTION_VALUE = '<script>alert(1)</script>';
 export const DUPLICATED_FIRST_NAME_QUERY = '?firstName=Alice&firstName=Bob';
 export const MALFORMED_ENCODED_QUERY = '?firstName=%zz';
 
+/** Book-specific counterparts, used with `BooksAPIRequest.getBooksByRawQuery`. */
+export const DUPLICATED_TITLE_QUERY = '?title=Clean&title=Refactoring';
+export const MALFORMED_TITLE_QUERY = '?title=%zz';
+
+/** An author id far beyond any id the live database will ever assign, for referential-integrity probes. */
+export const NON_EXISTENT_AUTHOR_ID = 999999999;
+
 /** Query parameter that is not documented for any operation in the OpenAPI spec. */
 export const UNKNOWN_QUERY_PARAM = { sortBy: 'firstName' };
 
