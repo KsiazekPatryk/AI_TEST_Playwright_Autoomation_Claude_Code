@@ -124,7 +124,7 @@ test.describe('GET /books - positive scenarios', { tag: ['@api', '@books', '@smo
       const matchesAuthor = item.authors.some(
         (entry) => entry.firstName.toLowerCase().includes(authorFilter) || entry.lastName.toLowerCase().includes(authorFilter),
       );
-      expect(matchesAuthor).toBeTruthy();
+      expect(matchesAuthor).toBe(true);
     }
     const matches = books.filter((item) => item.id === book.id);
     expect(matches).toHaveLength(1);
@@ -156,7 +156,7 @@ test.describe('GET /books - positive scenarios', { tag: ['@api', '@books', '@smo
     expect(response.headers()['content-type']).toContain(CONTENT_TYPE_JSON);
 
     const books = await parseResponse<RestBook[]>(response);
-    expect(books.some((item) => item.id === book.id)).toBeTruthy();
+    expect(books.map((item) => item.id)).toContain(book.id);
   });
 
   test('should make a newly created book retrievable with the RestBook/RestAuthor contract with no author id (POS-BOOKS-GET-008)', async ({

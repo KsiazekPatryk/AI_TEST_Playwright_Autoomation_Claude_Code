@@ -1,8 +1,20 @@
-import { test, expect } from '@fixtures/test.fixture';
-import type { APIRequestContext } from '@playwright/test';
 import { faker } from '@faker-js/faker';
-
-const API_URL = 'https://bookstoreapi.up.railway.app';
+import { test, expect } from '@fixtures/test.fixture';
+import { getRandomBookOverridePayload } from '@api/factories/book.factory';
+import { API_ENDPOINTS } from '@api/consts/api.endpoints.const';
+import {
+  HTTP_200_OK,
+  HTTP_201_CREATED,
+  HTTP_204_NO_CONTENT,
+  HTTP_400_BAD_REQUEST,
+  HTTP_405_METHOD_NOT_ALLOWED,
+  HTTP_409_CONFLICT,
+  HTTP_500_INTERNAL_SERVER_ERROR,
+} from '@api/consts/http.status.codes.const';
+import { NOT_SUPPORTED_MESSAGE_FRAGMENT, OPERATION_NOT_PERFORMED_MESSAGE, invalidPathVariableMessage } from '@api/consts/api.error.messages.const';
+import { DECIMAL_ID, INVALID_BEARER_TOKEN, NON_NUMERIC_ID } from '@data/negative.inputs.const';
+import { getApiErrorMessages, parseApiError } from '@utils/api.error.utils';
+import { parseResponse } from '@utils/parse.response.utils';
 
 // The OpenAPI spec documents only a 204 response for DELETE /books/{id} - no error responses
 // (400/401/403/404/409/500) are declared. Every case below was probed directly against the live
@@ -11,78 +23,66 @@ const API_URL = 'https://bookstoreapi.up.railway.app';
 // no-op with 204, non-numeric/decimal ids return 400, repeated deletion is idempotent, the
 // collection route returns 405) but is verified independently here, not assumed.
 
-type SeededAuthor = { id: number; firstName: string; lastName: string };
-type SeededBookPayload = { title: string; authors: number[]; year: number; price: number; available: number };
-type BookRecord = SeededBookPayload & { id: number; coverId: number | null };
+// `orders` is a setup dependency for the referential-integrity probe below (NEG-BOOKS-DELETE-007)
+// only - it is not the resource under test, so it deliberately stays a plain endpoint constant
+// (see api.endpoints.const.ts) rather than a dedicated OrdersAPIRequest/OrdersAPISteps pair.
+interface OrderItem {
+  book: { id: number };
+  [key: string]: unknown;
+}
 
-test.describe('DELETE /books/{id} - negative and robustness scenarios', () => {
+interface OrderResponse {
+  id: number;
+  items: OrderItem[];
+  [key: string]: unknown;
+}
+
+test.describe('DELETE /books/{id} - negative and robustness scenarios', { tag: ['@api', '@books', '@regression'] }, () => {
   const createdBookIds: number[] = [];
   const createdAuthorIds: number[] = [];
 
-  test.afterEach(async ({ request }) => {
+  test.afterEach(async ({ booksApiSteps, authorsApiSteps }) => {
+    // Books must be deleted before their referenced authors - deleting an author still referenced
+    // by a book returns 409 Conflict (confirmed live), so book cleanup always runs first. Repeated
+    // deletion of an already-deleted id is a safe no-op (204).
     for (const id of createdBookIds.splice(0, createdBookIds.length)) {
-      await request.delete(`${API_URL}/books/${id}`);
+      await booksApiSteps.deleteBook(id);
     }
     for (const id of createdAuthorIds.splice(0, createdAuthorIds.length)) {
-      await request.delete(`${API_URL}/authors/${id}`);
+      await authorsApiSteps.deleteAuthor(id);
     }
   });
 
-  async function seedAuthor(request: APIRequestContext): Promise<SeededAuthor> {
-    const payload = {
-      firstName: `${faker.person.firstName()}${faker.string.alpha(6)}`,
-      lastName: `${faker.person.lastName()}${faker.string.alpha(6)}`,
-    };
-    const response = await request.post(`${API_URL}/authors`, { data: payload });
-    expect(response.status()).toBe(201);
-    const author = await response.json();
+  test('should silently no-op when deleting a non-existent id (NEG-BOOKS-DELETE-001)', async ({
+    authorsApiSteps,
+    booksApiSteps,
+    booksApiRequest,
+  }) => {
+    const author = await authorsApiSteps.createAuthor();
     createdAuthorIds.push(author.id);
-    return author;
-  }
-
-  async function seedBook(
-    request: APIRequestContext,
-    authorIds: number[],
-    overrides: Partial<SeededBookPayload> = {},
-  ): Promise<BookRecord> {
-    const payload: SeededBookPayload = {
-      title: overrides.title ?? `Test Book ${faker.string.alphanumeric(10)}`,
-      authors: overrides.authors ?? authorIds,
-      year: overrides.year ?? faker.number.int({ min: 1990, max: 2023 }),
-      price: overrides.price ?? faker.number.float({ min: 1, max: 500, fractionDigits: 2 }),
-      available: overrides.available ?? faker.number.int({ min: 1, max: 100 }),
-    };
-    const response = await request.post(`${API_URL}/books`, { data: payload });
-    expect(response.status()).toBe(201);
-    const book = await response.json();
-    createdBookIds.push(book.id);
-    return book;
-  }
-
-  test('should silently no-op when deleting a non-existent id (NEG-BOOKS-DELETE-001)', async ({ request }) => {
-    const author = await seedAuthor(request);
-    const baseline = await seedBook(request, [author.id]);
+    const baseline = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+    createdBookIds.push(baseline.id);
 
     // The absent id is created and then deleted rather than hardcoded, so "does not exist" is a
     // guaranteed precondition instead of an assumption about the environment's data.
-    const disposable = await seedBook(request, [author.id]);
-    await request.delete(`${API_URL}/books/${disposable.id}`);
+    const disposable = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+    await booksApiSteps.deleteBook(disposable.id);
 
     // Contract gap: the endpoint silently no-ops for an unknown id, returning 204 rather than 404.
-    const deleteResponse = await request.delete(`${API_URL}/books/${disposable.id}`);
-    expect(deleteResponse.status()).toBe(204);
+    const deleteResponse = await booksApiRequest.deleteBook(disposable.id);
+    expect(deleteResponse.status()).toBe(HTTP_204_NO_CONTENT);
     expect(await deleteResponse.body()).toHaveLength(0);
 
-    const baselineResponse = await request.get(`${API_URL}/books/${baseline.id}`);
-    expect(baselineResponse.status(), 'an unknown-id deletion must not touch unrelated books').toBe(200);
+    const baselineResponse = await booksApiRequest.getBookById(baseline.id);
+    expect(baselineResponse.status(), 'an unknown-id deletion must not touch unrelated books').toBe(HTTP_200_OK);
   });
 
-  test('should reject a deletion with a non-numeric id (NEG-BOOKS-DELETE-002)', async ({ request }) => {
-    const deleteResponse = await request.delete(`${API_URL}/books/abc`);
+  test('should reject a deletion with a non-numeric id (NEG-BOOKS-DELETE-002)', async ({ booksApiRequest }) => {
+    const deleteResponse = await booksApiRequest.deleteBook(NON_NUMERIC_ID);
 
-    expect(deleteResponse.status()).toBe(400);
-    const error = await deleteResponse.json();
-    expect(error.message).toContain('For input string: "abc"');
+    expect(deleteResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+    const error = await parseApiError(deleteResponse);
+    expect(getApiErrorMessages(error)).toContain(invalidPathVariableMessage(NON_NUMERIC_ID));
   });
 
   const noopDeleteIds = [
@@ -91,48 +91,74 @@ test.describe('DELETE /books/{id} - negative and robustness scenarios', () => {
   ];
 
   noopDeleteIds.forEach(({ description, id, caseId }) => {
-    test(`should silently no-op when deleting ${description} (${caseId})`, async ({ request }) => {
-      const author = await seedAuthor(request);
-      const baseline = await seedBook(request, [author.id]);
+    test(`should silently no-op when deleting ${description} (${caseId})`, async ({
+      authorsApiSteps,
+      booksApiSteps,
+      booksApiRequest,
+    }) => {
+      const author = await authorsApiSteps.createAuthor();
+      createdAuthorIds.push(author.id);
+      const baseline = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+      createdBookIds.push(baseline.id);
 
       // Contract gap: a negative/zero id is a valid int64, so it is treated as just another
       // unknown id and no-ops with 204 rather than being rejected as out of range.
-      const deleteResponse = await request.delete(`${API_URL}/books/${id}`);
+      const deleteResponse = await booksApiRequest.deleteBook(id);
 
-      expect(deleteResponse.status()).toBe(204);
+      expect(deleteResponse.status()).toBe(HTTP_204_NO_CONTENT);
       expect(await deleteResponse.body()).toHaveLength(0);
 
-      const baselineResponse = await request.get(`${API_URL}/books/${baseline.id}`);
-      expect(baselineResponse.status(), 'an out-of-range id must not delete anything').toBe(200);
+      const baselineResponse = await booksApiRequest.getBookById(baseline.id);
+      expect(baselineResponse.status(), 'an out-of-range id must not delete anything').toBe(HTTP_200_OK);
     });
   });
 
-  test('should reject a deletion with a decimal id (NEG-BOOKS-DELETE-005)', async ({ request }) => {
-    const deleteResponse = await request.delete(`${API_URL}/books/1.5`);
+  test('should reject a deletion with a decimal id (NEG-BOOKS-DELETE-005)', async ({ booksApiRequest }) => {
+    const deleteResponse = await booksApiRequest.deleteBook(DECIMAL_ID);
 
-    expect(deleteResponse.status()).toBe(400);
-    const error = await deleteResponse.json();
-    expect(error.message).toContain('For input string: "1.5"');
+    expect(deleteResponse.status()).toBe(HTTP_400_BAD_REQUEST);
+    const error = await parseApiError(deleteResponse);
+    expect(getApiErrorMessages(error)).toContain(invalidPathVariableMessage(DECIMAL_ID));
   });
 
-  test('should be idempotent on repeated deletion of the same id (NEG-BOOKS-DELETE-006)', async ({ request }) => {
-    const author = await seedAuthor(request);
-    const book = await seedBook(request, [author.id]);
+  test('should be idempotent on repeated deletion of the same id (NEG-BOOKS-DELETE-006)', async ({
+    authorsApiSteps,
+    booksApiSteps,
+    booksApiRequest,
+  }) => {
+    const author = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(author.id);
+    const book = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+    createdBookIds.push(book.id);
 
-    const firstDelete = await request.delete(`${API_URL}/books/${book.id}`);
-    expect(firstDelete.status()).toBe(204);
+    const firstDelete = await booksApiRequest.deleteBook(book.id);
+    expect(firstDelete.status()).toBe(HTTP_204_NO_CONTENT);
 
     // Contract gap: a second deletion of the same, now-absent id also returns 204 rather than 404.
-    const secondDelete = await request.delete(`${API_URL}/books/${book.id}`);
-    expect(secondDelete.status(), 'repeated deletion must be idempotent').toBe(204);
+    const secondDelete = await booksApiRequest.deleteBook(book.id);
+    expect(secondDelete.status(), 'repeated deletion must be idempotent').toBe(HTTP_204_NO_CONTENT);
     expect(await secondDelete.body()).toHaveLength(0);
   });
 
   test('should block deleting a book referenced by an existing order with a conflict (NEG-BOOKS-DELETE-007)', async ({
-    request,
+    authorsApiSteps,
+    booksApiSteps,
+    booksApiRequest,
+    apiRequest,
   }) => {
-    const author = await seedAuthor(request);
-    const book = await seedBook(request, [author.id]);
+    // Deliberately NOT registered in createdBookIds/createdAuthorIds: this test's whole point is
+    // that the deletion is permanently blocked once an order references the book, so afterEach's
+    // assertive `booksApiSteps.deleteBook`/`authorsApiSteps.deleteAuthor` (which fail loudly on a
+    // non-204 response) would themselves fail here. Both the book and its author are therefore
+    // intentionally left as unavoidable leftover test data, exactly like the order itself. The ids
+    // are still recorded as a test annotation (visible in the HTML report) so they can be purged
+    // out-of-band, since afterEach cannot clean them up automatically.
+    const author = await authorsApiSteps.createAuthor();
+    const book = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+    test.info().annotations.push({
+      type: 'leaked-test-data',
+      description: `book=${book.id} author=${author.id} - blocked by order referential integrity, requires manual purge`,
+    });
 
     // recipient.phone/street/zipCode are undocumented as having a format beyond `type: string`,
     // but the live API rejects faker's default formats (e.g. "(699) 510-8693 x77274" or a
@@ -150,9 +176,9 @@ test.describe('DELETE /books/{id} - negative and robustness scenarios', () => {
         email: faker.internet.email(),
       },
     };
-    const orderResponse = await request.post(`${API_URL}/orders`, { data: orderPayload });
-    expect(orderResponse.status()).toBe(201);
-    const order = await orderResponse.json();
+    const orderResponse = await apiRequest.post(API_ENDPOINTS.orders.base, orderPayload);
+    expect(orderResponse.status()).toBe(HTTP_201_CREATED);
+    const order = await parseResponse<OrderResponse>(orderResponse);
 
     // Contract gap: referential integrity is enforced with a 409 - the deletion neither cascades
     // to the order nor orphans the item's book reference - but no error response is documented
@@ -160,23 +186,27 @@ test.describe('DELETE /books/{id} - negative and robustness scenarios', () => {
     // inaccessible authorization check (probed live: 403 Access Denied, and no credential is
     // available anywhere in this project to satisfy it), so the order created here cannot be
     // cleaned up afterward and is intentionally left as unavoidable leftover test data.
-    const deleteResponse = await request.delete(`${API_URL}/books/${book.id}`);
-    expect(deleteResponse.status()).toBe(409);
-    const error = await deleteResponse.json();
-    expect(error.message).toContain('operation could not be performed');
+    const deleteResponse = await booksApiRequest.deleteBook(book.id);
+    expect(deleteResponse.status()).toBe(HTTP_409_CONFLICT);
+    const error = await parseApiError(deleteResponse);
+    expect(getApiErrorMessages(error)).toContain(OPERATION_NOT_PERFORMED_MESSAGE);
 
-    const orderCheck = await request.get(`${API_URL}/orders/${order.id}`);
-    expect(orderCheck.status(), 'the referencing order must remain intact after the blocked deletion').toBe(200);
-    const refreshedOrder = await orderCheck.json();
-    const stillReferenced = refreshedOrder.items.find((item: { book: { id: number } }) => item.book.id === book.id);
+    const orderCheckResponse = await apiRequest.get(API_ENDPOINTS.orders.byId(order.id));
+    expect(orderCheckResponse.status(), 'the referencing order must remain intact after the blocked deletion').toBe(
+      HTTP_200_OK,
+    );
+    const refreshedOrder = await parseResponse<OrderResponse>(orderCheckResponse);
+    const stillReferenced = refreshedOrder.items.find((item) => item.book.id === book.id);
     expect(stillReferenced, 'the blocked deletion must leave the order item reference intact').toBeDefined();
 
-    const bookCheck = await request.get(`${API_URL}/books/${book.id}`);
-    expect(bookCheck.status(), 'the blocked deletion must leave the book itself intact').toBe(200);
+    const bookCheckResponse = await booksApiRequest.getBookById(book.id);
+    expect(bookCheckResponse.status(), 'the blocked deletion must leave the book itself intact').toBe(HTTP_200_OK);
   });
 
   test('should record the outcome of deleting a book with an uploaded cover (NEG-BOOKS-DELETE-008)', async ({
-    request,
+    authorsApiSteps,
+    booksApiSteps,
+    booksApiRequest,
   }) => {
     // Best-effort case: PATCH /books/{id}/cover is undocumented as requiring authorization (the
     // spec declares no securitySchemes at all for this API), yet the live endpoint rejects the
@@ -186,40 +216,65 @@ test.describe('DELETE /books/{id} - negative and robustness scenarios', () => {
     // after its owning book is deleted) cannot be exercised end-to-end here. The attempt and its
     // actual status are still recorded as a contract-gap finding, and the endpoint's core delete
     // behavior is verified regardless, per NEG-BOOKS-DELETE-008's documented expected status.
-    const author = await seedAuthor(request);
-    const book = await seedBook(request, [author.id]);
+    const author = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(author.id);
+    const book = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+    createdBookIds.push(book.id);
 
     const tinyPngBase64 =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-    const coverResponse = await request.patch(`${API_URL}/books/${book.id}/cover`, {
-      multipart: {
-        file: {
-          name: 'cover.png',
-          mimeType: 'image/png',
-          buffer: Buffer.from(tinyPngBase64, 'base64'),
-        },
-      },
+    const coverResponse = await booksApiRequest.uploadBookCover(book.id, {
+      name: 'cover.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(tinyPngBase64, 'base64'),
     });
     expect(coverResponse.status(), 'the cover upload attempt must not crash with a server error').toBeLessThan(500);
 
-    const deleteResponse = await request.delete(`${API_URL}/books/${book.id}`);
-    expect(deleteResponse.status()).toBe(204);
+    const deleteResponse = await booksApiRequest.deleteBook(book.id);
+    expect(deleteResponse.status()).toBe(HTTP_204_NO_CONTENT);
     expect(await deleteResponse.body(), 'a 204 must carry no response body').toHaveLength(0);
   });
 
   test('should not bulk-delete books via DELETE on the collection path (NEG-BOOKS-DELETE-009)', async ({
-    request,
+    authorsApiSteps,
+    booksApiSteps,
+    booksApiRequest,
   }) => {
-    const author = await seedAuthor(request);
-    const baseline = await seedBook(request, [author.id]);
+    const author = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(author.id);
+    const baseline = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+    createdBookIds.push(baseline.id);
 
-    const deleteResponse = await request.delete(`${API_URL}/books`);
+    const deleteResponse = await booksApiRequest.deleteBooksCollection();
 
-    expect(deleteResponse.status(), 'DELETE is not supported on the collection path').toBe(405);
-    const error = await deleteResponse.json();
-    expect(error.message).toContain('not supported');
+    expect(deleteResponse.status(), 'DELETE is not supported on the collection path').toBe(
+      HTTP_405_METHOD_NOT_ALLOWED,
+    );
+    const error = await parseApiError(deleteResponse);
+    expect(getApiErrorMessages(error).join(' ')).toContain(NOT_SUPPORTED_MESSAGE_FRAGMENT);
 
-    const baselineResponse = await request.get(`${API_URL}/books/${baseline.id}`);
-    expect(baselineResponse.status(), 'no book may be removed by the rejected bulk delete').toBe(200);
+    const baselineResponse = await booksApiRequest.getBookById(baseline.id);
+    expect(baselineResponse.status(), 'no book may be removed by the rejected bulk delete').toBe(HTTP_200_OK);
+  });
+
+  test('should not fail with a server error when an invalid bearer token is supplied (NEG-BOOKS-DELETE-010)', async ({
+    authorsApiSteps,
+    booksApiSteps,
+    booksApiRequest,
+  }) => {
+    // The endpoint declares no security scheme, so an unparseable credential must either be ignored
+    // or rejected cleanly - never crash the server, especially for a non-idempotent write.
+    const author = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(author.id);
+    const book = await booksApiSteps.createBook(getRandomBookOverridePayload({ authors: [author.id] }));
+
+    const deleteResponse = await booksApiRequest.deleteBook(book.id, { Authorization: INVALID_BEARER_TOKEN });
+
+    expect(deleteResponse.status(), 'an invalid token must not crash a write endpoint').toBeLessThan(
+      HTTP_500_INTERNAL_SERVER_ERROR,
+    );
+    if (deleteResponse.status() !== HTTP_204_NO_CONTENT) {
+      createdBookIds.push(book.id);
+    }
   });
 });

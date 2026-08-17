@@ -1,6 +1,6 @@
 import { APIResponse } from '@playwright/test';
 import { API_ENDPOINTS } from '@api/consts/api.endpoints.const';
-import { APIPayload, APIRequest, QueryParams, RequestHeaders } from '@api/requests/api.request';
+import { APIPayload, APIRequest, MultipartFile, QueryParams, RequestHeaders } from '@api/requests/api.request';
 
 export class BooksAPIRequest {
   constructor(private readonly api: APIRequest) {}
@@ -11,6 +11,23 @@ export class BooksAPIRequest {
 
   async getBooks(params?: QueryParams, headers?: RequestHeaders): Promise<APIResponse> {
     return this.api.get(API_ENDPOINTS.books.base, params, headers);
+  }
+
+  async updateBook(id: number | string, payload?: APIPayload, headers?: RequestHeaders): Promise<APIResponse> {
+    return this.api.put(API_ENDPOINTS.books.byId(id), payload, headers);
+  }
+
+  async updateBookPartially(id: number | string, payload?: APIPayload, headers?: RequestHeaders): Promise<APIResponse> {
+    return this.api.patch(API_ENDPOINTS.books.byId(id), payload, headers);
+  }
+
+  /**
+   * Issues the multipart `PATCH /books/{id}/cover` upload. Kept separate from
+   * `updateBookPartially` (which sends a JSON body) since Playwright's `multipart` fetch option is
+   * a structurally different request shape from a JSON `data` payload.
+   */
+  async uploadBookCover(id: number | string, file: MultipartFile): Promise<APIResponse> {
+    return this.api.patchMultipart(API_ENDPOINTS.books.cover(id), { file });
   }
 
   /**
@@ -28,5 +45,9 @@ export class BooksAPIRequest {
 
   async deleteBook(id: number | string, headers?: RequestHeaders): Promise<APIResponse> {
     return this.api.delete(API_ENDPOINTS.books.byId(id), headers);
+  }
+
+  async deleteBooksCollection(): Promise<APIResponse> {
+    return this.api.delete(API_ENDPOINTS.books.base);
   }
 }

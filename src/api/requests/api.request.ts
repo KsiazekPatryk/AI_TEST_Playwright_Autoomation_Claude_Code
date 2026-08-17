@@ -3,6 +3,8 @@ import { APIRequestContext, APIResponse } from '@playwright/test';
 export type APIPayload = Record<string, unknown> | unknown[] | string;
 export type RequestHeaders = Record<string, string>;
 export type QueryParams = Record<string, string | number | boolean>;
+export type MultipartFile = { name: string; mimeType: string; buffer: Buffer };
+export type MultipartData = Record<string, string | number | boolean | MultipartFile>;
 
 export class APIRequest {
   constructor(private readonly api: APIRequestContext) {}
@@ -33,6 +35,13 @@ export class APIRequest {
 
     return this.api.patch(endpoint, {
       ...(isFormData ? { multipart: payload } : { data: payload }),
+      headers,
+    });
+  }
+
+  async patchMultipart(endpoint: string, multipart: MultipartData, headers: RequestHeaders = {}): Promise<APIResponse> {
+    return this.api.patch(endpoint, {
+      multipart,
       headers,
     });
   }

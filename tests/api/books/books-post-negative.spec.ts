@@ -4,7 +4,9 @@ import { BookResponse, BookSchema } from '@api/models/book.model';
 import {
   HTTP_201_CREATED,
   HTTP_400_BAD_REQUEST,
+  HTTP_409_CONFLICT,
   HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+  HTTP_500_INTERNAL_SERVER_ERROR,
 } from '@api/consts/http.status.codes.const';
 import { CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT_PLAIN } from '@api/consts/content.types.const';
 import {
@@ -13,17 +15,17 @@ import {
   authorNotFoundMessage,
   incorrectInputDataMessage,
 } from '@api/consts/api.error.messages.const';
-import { NON_EXISTENT_AUTHOR_ID } from '@data/negative.inputs.const';
+import { INVALID_BEARER_TOKEN, NON_EXISTENT_AUTHOR_ID } from '@data/negative.inputs.const';
 import { getApiErrorMessages, parseApiError } from '@utils/api.error.utils';
 import { parseResponse } from '@utils/parse.response.utils';
 import { getRandomUniqueFragment } from '@utils/random.data.utils';
 
 // The OpenAPI spec documents only a 201 response for POST /books - no error responses (400, 401,
 // 403, 404, 409, 415, 500) are declared for createBook. Every case below was probed directly
-// against the live API: deterministic cases assert the exact observed status code/message
-// (mirroring the sibling POST /authors negative tests), while the price/available boundary cases
-// (NEG-BOOKS-POST-010..013) intentionally use a loose "not 201, not 5xx" assertion, since no
-// specific error code is documented for them.
+// against the live API and asserts the exact observed status code/message (mirroring the sibling
+// POST /authors negative tests) - including the price/available boundary cases
+// (NEG-BOOKS-POST-010..013), which the sibling PUT/PATCH negative tests already prove return 400
+// with a field-specific message.
 
 test.describe('POST /books - negative and robustness scenarios', { tag: ['@api', '@books', '@regression'] }, () => {
   const createdBookIds: number[] = [];
@@ -201,31 +203,33 @@ test.describe('POST /books - negative and robustness scenarios', { tag: ['@api',
   test('should reject price below the documented minimum of 0.01 (NEG-BOOKS-POST-010)', async ({
     authorsApiSteps,
     booksApiRequest,
+    booksApiSteps,
   }) => {
     const author = await authorsApiSteps.createAuthor();
     createdAuthorIds.push(author.id);
-    const payload = getRandomBookOverridePayload({
-      title: `Too Cheap ${getRandomUniqueFragment()}`,
-      authors: [author.id],
-      year: 2000,
-      price: 0,
-      available: 5,
-    });
+    const title = `Too Cheap ${getRandomUniqueFragment()}`;
+    const payload = getRandomBookOverridePayload({ title, authors: [author.id], year: 2000, price: 0, available: 5 });
 
     const response = await booksApiRequest.createBook(payload);
 
-    expect(response.status()).not.toBe(HTTP_201_CREATED);
-    expect(response.status()).toBeLessThan(500);
+    expect(response.status()).toBe(HTTP_400_BAD_REQUEST);
+    const error = await parseApiError(response);
+    expect(getApiErrorMessages(error)).toContain(incorrectInputDataMessage('price'));
+
+    const books = await booksApiSteps.getBooks({ title });
+    expect(books, 'a rejected create must not leave a leaked book').toEqual([]);
   });
 
   test('should reject price above the documented maximum of 1000 (NEG-BOOKS-POST-011)', async ({
     authorsApiSteps,
     booksApiRequest,
+    booksApiSteps,
   }) => {
     const author = await authorsApiSteps.createAuthor();
     createdAuthorIds.push(author.id);
+    const title = `Too Expensive ${getRandomUniqueFragment()}`;
     const payload = getRandomBookOverridePayload({
-      title: `Too Expensive ${getRandomUniqueFragment()}`,
+      title,
       authors: [author.id],
       year: 2000,
       price: 1000.01,
@@ -234,38 +238,44 @@ test.describe('POST /books - negative and robustness scenarios', { tag: ['@api',
 
     const response = await booksApiRequest.createBook(payload);
 
-    expect(response.status()).not.toBe(HTTP_201_CREATED);
-    expect(response.status()).toBeLessThan(500);
+    expect(response.status()).toBe(HTTP_400_BAD_REQUEST);
+    const error = await parseApiError(response);
+    expect(getApiErrorMessages(error)).toContain(incorrectInputDataMessage('price'));
+
+    const books = await booksApiSteps.getBooks({ title });
+    expect(books, 'a rejected create must not leave a leaked book').toEqual([]);
   });
 
   test('should reject available below the documented minimum of 1 (NEG-BOOKS-POST-012)', async ({
     authorsApiSteps,
     booksApiRequest,
+    booksApiSteps,
   }) => {
     const author = await authorsApiSteps.createAuthor();
     createdAuthorIds.push(author.id);
-    const payload = getRandomBookOverridePayload({
-      title: `Zero Stock ${getRandomUniqueFragment()}`,
-      authors: [author.id],
-      year: 2000,
-      price: 10.0,
-      available: 0,
-    });
+    const title = `Zero Stock ${getRandomUniqueFragment()}`;
+    const payload = getRandomBookOverridePayload({ title, authors: [author.id], year: 2000, price: 10.0, available: 0 });
 
     const response = await booksApiRequest.createBook(payload);
 
-    expect(response.status()).not.toBe(HTTP_201_CREATED);
-    expect(response.status()).toBeLessThan(500);
+    expect(response.status()).toBe(HTTP_400_BAD_REQUEST);
+    const error = await parseApiError(response);
+    expect(getApiErrorMessages(error)).toContain(incorrectInputDataMessage('available'));
+
+    const books = await booksApiSteps.getBooks({ title });
+    expect(books, 'a rejected create must not leave a leaked book').toEqual([]);
   });
 
   test('should reject available above the documented maximum of 10000 (NEG-BOOKS-POST-013)', async ({
     authorsApiSteps,
     booksApiRequest,
+    booksApiSteps,
   }) => {
     const author = await authorsApiSteps.createAuthor();
     createdAuthorIds.push(author.id);
+    const title = `Overstocked ${getRandomUniqueFragment()}`;
     const payload = getRandomBookOverridePayload({
-      title: `Overstocked ${getRandomUniqueFragment()}`,
+      title,
       authors: [author.id],
       year: 2000,
       price: 10.0,
@@ -274,8 +284,12 @@ test.describe('POST /books - negative and robustness scenarios', { tag: ['@api',
 
     const response = await booksApiRequest.createBook(payload);
 
-    expect(response.status()).not.toBe(HTTP_201_CREATED);
-    expect(response.status()).toBeLessThan(500);
+    expect(response.status()).toBe(HTTP_400_BAD_REQUEST);
+    const error = await parseApiError(response);
+    expect(getApiErrorMessages(error)).toContain(incorrectInputDataMessage('available'));
+
+    const books = await booksApiSteps.getBooks({ title });
+    expect(books, 'a rejected create must not leave a leaked book').toEqual([]);
   });
 
   test('should reject authors items sent as strings instead of integers (NEG-BOOKS-POST-014)', async ({
@@ -367,10 +381,51 @@ test.describe('POST /books - negative and robustness scenarios', { tag: ['@api',
       { 'Content-Type': CONTENT_TYPE_TEXT_PLAIN },
     );
 
-    expect(response.status()).not.toBe(HTTP_201_CREATED);
-    expect(response.status()).toBeLessThan(500);
     expect(response.status()).toBe(HTTP_415_UNSUPPORTED_MEDIA_TYPE);
     const error = await parseApiError(response);
     expect(getApiErrorMessages(error).join(' ')).toContain(NOT_SUPPORTED_MESSAGE_FRAGMENT);
+  });
+
+  test('should reject creating a book with a title that already exists (NEG-BOOKS-POST-019)', async ({
+    authorsApiSteps,
+    booksApiSteps,
+    booksApiRequest,
+  }) => {
+    // The live API enforces a unique constraint on `title` (see book.factory.ts) - confirmed here
+    // rather than assumed, mirroring the referential-integrity 409 coverage already present for
+    // DELETE /books/{id} (NEG-BOOKS-DELETE-007).
+    const author = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(author.id);
+    const title = `Duplicate Title ${getRandomUniqueFragment()}`;
+    const existing = await booksApiSteps.createBook(getRandomBookOverridePayload({ title, authors: [author.id] }));
+    createdBookIds.push(existing.id);
+
+    const response = await booksApiRequest.createBook(getRandomBookOverridePayload({ title, authors: [author.id] }));
+
+    expect(response.status()).toBe(HTTP_409_CONFLICT);
+    const error = await parseApiError(response);
+    expect(getApiErrorMessages(error)).toContain(OPERATION_NOT_PERFORMED_MESSAGE);
+  });
+
+  test('should not fail with a server error when an invalid bearer token is supplied (NEG-BOOKS-POST-020)', async ({
+    authorsApiSteps,
+    booksApiRequest,
+  }) => {
+    // The endpoint declares no security scheme, so an unparseable credential must either be ignored
+    // or rejected cleanly - never crash the server, especially for a non-idempotent write.
+    const author = await authorsApiSteps.createAuthor();
+    createdAuthorIds.push(author.id);
+    const title = `Invalid Token Probe ${getRandomUniqueFragment()}`;
+    const payload = getRandomBookOverridePayload({ title, authors: [author.id] });
+
+    const response = await booksApiRequest.createBook(payload, { Authorization: INVALID_BEARER_TOKEN });
+
+    expect(response.status(), 'an invalid token must not crash a write endpoint').toBeLessThan(
+      HTTP_500_INTERNAL_SERVER_ERROR,
+    );
+    if (response.status() === HTTP_201_CREATED) {
+      const created = await parseResponse<BookResponse>(response);
+      createdBookIds.push(created.id);
+    }
   });
 });

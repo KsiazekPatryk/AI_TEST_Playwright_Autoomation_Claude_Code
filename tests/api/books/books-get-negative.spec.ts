@@ -94,7 +94,7 @@ test.describe('GET /books - negative and robustness scenarios', { tag: ['@api', 
 
     const body = await parseResponse<RestBook[]>(response);
     expect(RestBooksCollectionSchema.safeParse(body).success).toBe(true);
-    expect(body.some((item) => item.id === book.id)).toBeTruthy();
+    expect(body.map((item) => item.id)).toContain(book.id);
   });
 
   test('should handle a malformed URL-encoded query value without an ungraceful failure (NEG-BOOKS-GET-005)', async ({
@@ -117,7 +117,7 @@ test.describe('GET /books - negative and robustness scenarios', { tag: ['@api', 
       expect(RestBooksCollectionSchema.safeParse(body).success).toBe(true);
       // Contract gap: the malformed filter is silently ignored and the full unfiltered collection
       // is returned instead of a 400 - the seeded book comes back even though its title is not "%zz".
-      expect(body.some((item) => item.id === book.id)).toBeTruthy();
+      expect(body.map((item) => item.id)).toContain(book.id);
     }
   });
 
@@ -157,6 +157,6 @@ test.describe('GET /books - negative and robustness scenarios', { tag: ['@api', 
     // The seeded author's name contains only letters (see getRandomFirstName/getRandomLastName), so
     // its numeric id can never appear as a substring of it - the seeded book must not be returned
     // via an id-based lookup.
-    expect(body.some((item) => item.id === book.id)).toBeFalsy();
+    expect(body.map((item) => item.id)).not.toContain(book.id);
   });
 });
