@@ -5,4 +5,5 @@
 export const ROUTES = {
   home: '/',
   authors: '/authors',
+  booksManagement: '/books-management',
 } as const;

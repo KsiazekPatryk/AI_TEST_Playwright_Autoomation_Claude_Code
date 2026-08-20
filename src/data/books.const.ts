@@ -13,6 +13,12 @@ export const EFFECTIVE_JAVA = {
   stock: '100',
 } as const;
 
+/**
+ * Title prefix for books created by E2E flows. Combined with a random unique fragment it keeps
+ * generated titles recognisable in the shared catalog and collision-free under `fullyParallel`.
+ */
+export const E2E_BOOK_TITLE_PREFIX = 'E2E Add Author';
+
 export const UNRELATED_TITLES = [
   'Java Puzzlers',
   'Java Concurrency in Practice',

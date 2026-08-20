@@ -21,6 +21,17 @@ export function getRandomLastName(): string {
 }
 
 /**
+ * Last name carrying a letters-only random suffix, so the resulting full name is unique in the
+ * shared demo environment. Required whenever an author has to stay addressable *by name* in the UI
+ * (e.g. the "Edit Book" modal lists every author that exists, currently 40+), since a plain faker
+ * name can collide with a seeded author or with one left behind by an earlier run — the same
+ * guarantee `@ui/factories/author.factory.ts` already makes for UI-created authors.
+ */
+export function getRandomUniqueLastName(): string {
+  return `${getRandomLastName()}${faker.string.alpha({ length: 6, casing: 'lower' })}`;
+}
+
+/**
  * Letters-only name that is long and unique enough to match no existing author, so an
  * empty-result assertion cannot be perturbed by concurrently running specs. Deliberately kept
  * within the API's accepted character set, so "no match" is not confused with "invalid value".
